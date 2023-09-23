@@ -1,4 +1,9 @@
+import pathlib
+
 from invoke import task
+
+BASE_DIR = pathlib.Path(__file__).resolve().parent
+
 
 @task
 def generate_requirements(c):
@@ -6,20 +11,30 @@ def generate_requirements(c):
     c.run(f"pip-compile requirements.in")
     print('done')
 
+
 @task
-def sync_requirements(c):
-    """Install/synchronize requirements.txt"""
-    c.run("pip-sync requirements.txt")
-    print('done')
-
-
 def generate_dev_requirements(c):
-    """Generate requirements.txt from dev-requirements.in"""
+    """Generate dev-requirements.txt"""
     c.run(f"pip-compile dev-requirements.in")
     print('done')
 
+
 @task
-def sync_dev_requirements(c):
-    """Install/synchronize dev-requirements.txt"""
-    c.run("pip-sync dev-requirements.txt")
+def install_requirements(c):
+    """Install requirements into venv"""
+    c.run("pip install -r requirements.txt")
+    print('done')
+
+
+@task
+def install_dev_requirements(c):
+    """Install dev requirements into venv"""
+    c.run("pip install -r dev-requirements.txt")
+    print('done')
+
+
+@task(pre=[generate_requirements, generate_dev_requirements])
+def update(c):
+    """Generate/update all requirements"""
+    c.run("pip-sync requirements.txt dev-requirements.txt")
     print('done')
