@@ -1,0 +1,190 @@
+name: Build
+
+on:
+  push:
+    branches:
+      - master
+    tags:
+      - 'v*' # Push events to matching v*, i.e. v1.0, v20.15.10
+  pull_request:
+    branches:
+      - master
+
+jobs:
+
+  linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: "!contains(github.event.head_commit.message, 'skip ci')"
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Create environment
+        run: $CONDA/bin/conda create --yes --name mm2image python=3.10 wxpython=4.2.1 --channel conda-forge
+
+      - name: Install dependencies
+        run: $CONDA/envs/mm2image/bin/pip install -r requirements.txt
+
+      - name: Install dev dependencies
+        run: $CONDA/envs/mm2image/bin/pip install -r dev-requirements.txt
+
+      - name: Create binary
+        run: |
+          $CONDA/envs/mm2image/bin/pyinstaller --clean --onefile --noconsole --noconfirm --dist ./dist/linux ./mm2image.py
+
+      - name: Zip binary
+        run: |
+          cd ./dist/linux
+          zip mm2image-linux.zip mm2image
+
+      - uses: actions/upload-artifact@v3
+        with:
+          name: mm2image-linux
+          path: ./dist/linux/mm2image-linux.zip
+
+  macos:
+    runs-on: macos-latest
+    timeout-minutes: 10
+    if: "!contains(github.event.head_commit.message, 'skip ci')"
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Create environment and install dependencies
+        run: $CONDA/bin/conda create --yes --name mm2image python=3.10 wxpython=4.2.1 --channel conda-forge
+
+      - name: Install dependencies
+        run: $CONDA/envs/mm2image/bin/pip install -r requirements.txt
+
+      - name: Install dev dependencies
+        run: $CONDA/envs/mm2image/bin/pip install -r dev-requirements.txt
+
+      - name: Create binary
+        run: |
+          $CONDA/envs/mm2image/bin/pyinstaller --clean --onefile --noconsole --noconfirm --dist ./dist/macos ./mm2image.py
+          rm -rf ./dist/macos/mm2image
+
+      - name: Zip binary
+        run: |
+          cd ./dist/macos
+          zip -r mm2image-macos.zip .
+
+      - uses: actions/upload-artifact@v3
+        with:
+          name: mm2image-macos
+          path: ./dist/macos/mm2image-macos.zip
+
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    if: "!contains(github.event.head_commit.message, 'skip ci')"
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - run: |
+          echo %CONDA%
+        shell: cmd
+
+      - name: Create environment and install dependencies
+        run: |
+          %CONDA%\Scripts\conda.exe create ^
+          --yes --name mm2image python=3.10 wxpython=4.2.1 --channel conda-forge
+        shell: cmd
+
+      - name: Install dependencies
+        run: |
+          %CONDA%\envs\mm2image\Scripts\pip install -r requirements.txt
+        shell: cmd
+
+      - name: Install dev dependencies
+        run: |
+          %CONDA%\envs\mm2image\Scripts\pip install -r dev-requirements.txt
+        shell: cmd
+
+      - name: Create binary
+        run: |
+          %CONDA%\envs\mm2image\Scripts\pyinstaller.exe ^
+          --clean --onefile --noconsole --noconfirm --dist .\dist\windows64 .\mm2image.py
+        shell: cmd
+
+      - name: Zip binary
+        run: |
+          cd .\dist\windows64
+          powershell Compress-Archive mm2image.exe mm2image-windows.zip
+
+      - uses: actions/upload-artifact@v3
+        with:
+          name: mm2image-windows
+          path: .\dist\windows64\mm2image-windows.zip
+
+  publish:
+    needs: [ linux, macos, windows ]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref }}
+          release_name: Release ${{ github.ref }}
+          draft: true
+          prerelease: true
+
+      - name: Get tag version
+        id: get_version
+        run: echo ::set-output name=VERSION::${GITHUB_REF#refs/tags/}
+
+      - uses: actions/download-artifact@v1
+        with:
+          name: mm2image-linux
+        continue-on-error: true
+
+      - name: Upload Linux Release Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./mm2image-linux/mm2image-linux.zip
+          asset_name: mm2image-linux-${{ steps.get_version.outputs.VERSION }}.zip
+          asset_content_type: application/zip
+        continue-on-error: true
+
+      - uses: actions/download-artifact@v1
+        with:
+          name: mm2image-macos
+        continue-on-error: true
+
+      - name: Upload MacOS Release Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./mm2image-macos/mm2image-macos.zip
+          asset_name: mm2image-macos-${{ steps.get_version.outputs.VERSION }}.zip
+          asset_content_type: application/zip
+        continue-on-error: true
+
+      - uses: actions/download-artifact@v1
+        with:
+          name: mm2image-windows
+        continue-on-error: true
+
+      - name: Upload Windows Release Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./mm2image-windows/mm2image-windows.zip
+          asset_name: mm2image-windows-${{ steps.get_version.outputs.VERSION }}.zip
+          asset_content_type: application/zip
+        continue-on-error: true
